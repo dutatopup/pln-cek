@@ -261,6 +261,81 @@ Catatan:
 - Error umum: `{"code":400,"message":"IDPel/Nomor Meter yang Anda masukan salah, mohon teliti kembali"}`
 - Tidak ada pembatasan ke meter milik akun login → lihat §5.
 
+### 4.2 Lacak permohonan pasang baru (no registrasi 13 digit)
+
+Menu app: **Pasang Baru → Lacak Permohonan → Lacak Berdasarkan → No. Registrasi**.
+Nomor 13 digit **bukan** IDPEL; `meter/check` menolaknya dengan
+`"IDPel/Nomor Meter yang Anda masukan salah"`.
+
+```
+POST https://connect-gateway.pln.co.id/platinum/v1/meter/lacak-permohonan
+Content-Type: application/json
+Authorization: Bearer <accessToken>
+x-plnmobile-version: 8.1.1
+
+{"agendaNo": "1413000000001", "code": "NOREGISTER"}
+```
+
+| `code` | Arti `agendaNo` | Hasil |
+|---|---|---|
+| `NOREGISTER` | no registrasi 13 digit | `200` |
+| `NOAGENDA` | no agenda 18 digit (`data[].noagenda`) | `200` |
+| `IDPEL` | IDPEL | diteruskan ke Oracle (buffer 12 digit) |
+| `REGISTER`, `NOREG`, `AGENDA`, `BOOKING` | — | `404 "Jenis Kriteria cari tidak valid"` |
+
+Respons `200` (hanya 4 field, tanpa status):
+
+```json
+{"code":200,"success":true,"message":"berhasil mendapatkan data","data":[
+  {"nama":"PT CONTOH","tglpermohonan":"20 JUL 2026",
+   "noagenda":"141309912607200001","jenis_transaksi":"PASANG BARU"}]}
+```
+
+Catatan probing:
+- `code` **case-sensitive**; huruf kecil → `400 "Tipe kode tidak sesuai"`.
+- Body wajib **objek** JSON; field salah/tipe salah → `400 malformed request body`;
+  nilai non-objek (array/string) → `500`. Wajib: `agendaNo` (string) + `code` (enum string).
+- Route ini **tidak** memakai query string: GET selalu `404`, `OPTIONS` → `allow: POST`.
+
+### 4.3 Status permohonan (Simpan → `installationId` → detail)
+
+Alur app: hasil lacak → tombol **Simpan** → "Permohonan Aktif" → detail.
+
+```
+POST https://connect-gateway.pln.co.id/platinum/v1/meter/track-bind
+Content-Type: application/json
+Authorization: Bearer <accessToken>
+
+{"agendaNo": "141309912607200001"}
+→ {"code":200,"installationId":12345678,"success":true,"message":"Permohonan instalasi ..."}
+```
+
+```
+GET https://connect-gateway.pln.co.id/platinum/v1/meter/installations?id=12345678
+```
+
+Field penting:
+
+| Field | Arti |
+|---|---|
+| `installationStatus` / `statusCode` | `Selesai`/`completed`, `Dalam Proses`/`success` |
+| `lastStatusFromHistory` | `Nyala`, `Pelaksanaan penyambungan`, `Pembayaran berhasil`, `Permohonan` |
+| `history[]` | `{item, timestamp}` — kronologi |
+| `power` / `newTariff` | daya (VA) dan tarif baru, mis. `10600` + `B2` |
+| `priceDetail[]` + `totalPrice` | BP, UJL, materai, total |
+| `transactionId` | nomor transaksi `PLN/…` |
+| `registerNo` / `agendaNo` / `meterAccount` | no registrasi / no agenda / no meter baru |
+| `dueDate` | jatuh tempo pembayaran |
+| `unitup`, `type` | unit PLN, jenis permohonan |
+
+Catatan:
+- `track-bind` **menulis** ke akun (menambah "Permohonan Aktif"). Idempoten: bind ulang
+  mengembalikan `installationId` yang sama.
+- `installationId` hanya keluar dari `track-bind`, tidak ada di respons §4.2.
+- Endpoint daftar "Permohonan Aktif" belum ditemukan: `v1/installations?page=1&number=` 404 di
+  18 prefix gateway; `v1/meter/installations` hanya menerima `?id=`.
+- Tanpa `agendaNo`: `400 "Data NOAGENDA tidak ditemukan : - V003"`.
+
 ---
 
 ## 5. Bukti uji
@@ -421,6 +496,9 @@ Semua dengan header §2. `200` = teruji berfungsi.
 | `GET platinum/v1/meter/token-list/pd` | denominasi token: 5000, 20000, 40000, 50000, 100000… |
 | `GET titanium/v2/meter/postbilling?meterID=<idpel>` | **rata-rata tagihan** + `billings[]` per bulan (§5.3) |
 | `GET platinum/v2/meter/usage/<id internal>` | **riwayat 6 bulan** kWh + rupiah (§5.5) |
+| `POST platinum/v1/meter/lacak-permohonan` | **lacak permohonan** by no registrasi 13 digit / no agenda (§4.2) |
+| `POST platinum/v1/meter/track-bind` | **Simpan/bind** permohonan → `installationId` (§4.3) |
+| `GET platinum/v1/meter/installations?id=<installationId>` | **status + riwayat + biaya** (§4.3) |
 | `GET platinum/v1/meter/cek-status-ps?id=<idpel>` | **nama pemilik utuh** + NIK/npwp ter-mask (§5.4) |
 | `GET titanium/v2/meter/token-estimate?meterID=<idpel>` | prabayar: sisa hari + rata-rata kWh/hari |
 | `GET nitrogen/v1/non-pelayanan-pelanggan/ebilling/index?meterID=` | status e-billing (`data:null` bila tak terdaftar) |

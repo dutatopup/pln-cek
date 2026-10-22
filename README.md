@@ -5,6 +5,8 @@ emulator, juga tidak perlu membuka aplikasi PLN Mobile.
 
 Kodenya Python stdlib, jadi tidak ada `pip install` apa pun. Login cukup sekali lewat
 WhatsApp, token kemudian dipakai selama ±91 hari. Riwayat enam bulan ada di opsi `--usage`.
+Permohonan pasang baru (nomor registrasi tiga belas digit) dicek lewat `--noreg`, dan
+status plus biaya serta riwayat tahapannya lewat `--status`.
 
 Semua nilai yang muncul di repo ini, IDPEL, nomor meter, nama pemilik, nomor telepon, kota,
 koordinat, sampai angka tagihan, sudah diganti atau dibulatkan. File token `tok.json` masuk
@@ -146,7 +148,64 @@ Nilai `address` sudah ditutup oleh server, jadi yang terlihat hanya awalan jalan
 
 ---
 
-## 4. Aturan main
+## 4. Cek permohonan pasang baru
+
+Nomor registrasi pasang baru **bukan** IDPEL. Angkanya tiga belas digit, berbeda dengan
+IDPEL dua belas digit, jadi `pln-cek 1413000000001` akan menjawab
+`IDPel/Nomor Meter yang Anda masukan salah`. Pakai opsi `--noreg`.
+
+```bash
+# lacak permohonan: jenis, tanggal, atas nama, no agenda
+pln-cek --noreg 1413000000001
+```
+
+```
+1413000000001  PASANG BARU  20 JUL 2026  PT CONTOH  agenda=141309912607200001
+```
+
+Untuk melihat status, biaya, dan riwayat tahapan, pakai `--status`:
+
+```bash
+pln-cek --status 1413000000001
+
+# banyak nomor sekaligus
+pln-cek --status --gap=3 1413000000001 1413000000002
+```
+
+```
+1413000000001  Selesai/completed  daya=10600VA tarif=B2  rp=12030400  meter=141300000001  tx=PLN/1413020072026000001
+    biaya  Biaya Penyambungan (BP): 10271400
+    biaya  Uang Jaminan Langganan (UJL): 1749000
+    biaya  Bea Materai: 10000
+    2026-09-18 00:00  Nyala
+    2026-09-18 14:52  Pelaksanaan penyambungan
+    2026-07-20 12:01  Pembayaran berhasil
+    2026-07-20 08:19  Permohonan
+```
+
+`--status` menjalankan dua langkah, sama seperti aplikasi:
+
+1. lacak nomor registrasi, ambil no agenda delapan belas digit;
+2. **Simpan** permohonan ke akun (`track-bind`) untuk mendapat `installationId`, lalu baca
+   detailnya.
+
+Langkah kedua **menulis** ke akunmu: permohonan muncul di "Permohonan Aktif". Kalau hanya
+butuh data permohonan tanpa menyimpannya, cukup `--noreg`.
+
+Arti status:
+
+| `installationStatus` | Tahap terakhir | Arti |
+|---|---|---|
+| `Selesai` | `Nyala` | sambungan sudah menyala |
+| `Dalam Proses` | `Pelaksanaan penyambungan` | petugas sedang memasang |
+| `Dalam Proses` | `Pembayaran berhasil` | sudah bayar, menunggu penjadwalan |
+
+Biaya yang muncul di detail: BP (biaya penyambungan), UJL (uang jaminan langganan), dan
+bea materai. Semuanya diambil dari `priceDetail[]`; `dueDate` adalah jatuh tempo pembayaran.
+
+---
+
+## 5. Aturan main
 
 1. Jeda dua detik antar IDPEL sudah jadi default. Kalau kena `429`, naikkan jadi `--gap=5`.
 2. Access token hanya berlaku satu jam, tapi `pln-cek.py` memperbaruinya sendiri sehingga
@@ -160,7 +219,7 @@ Nilai `address` sudah ditutup oleh server, jadi yang terlihat hanya awalan jalan
 
 ---
 
-## 5. Uninstall
+## 6. Uninstall
 
 Sama seperti instalasi, semuanya satu baris. Untuk Linux atau macOS:
 
@@ -208,7 +267,7 @@ dan `function pln-login`. Blok di `~/.bashrc` dihapus dengan `nano ~/.bashrc`, s
 
 ---
 
-## 6. Troubleshooting
+## 7. Troubleshooting
 
 | Gejala | Penyebab | Solusi |
 |---|---|---|

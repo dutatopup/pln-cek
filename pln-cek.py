@@ -3,6 +3,8 @@
 
 Pakai:  python3 pln-cek.py <IDPEL> [<IDPEL> ...]
         python3 pln-cek.py --usage <IDPEL>   # + riwayat 6 bulan (kwh & rupiah)
+        python3 pln-cek.py --noreg <NO_REG>  # lacak permohonan pasang baru (13 digit)
+        python3 pln-cek.py --status <NO_REG> # + simpan(bind) & tarik status + riwayat
 Token:  ~/pln-re/tok.json  ({"access": ..., "refresh": ...})
 Auto:   access token kedaluwarsa -> refresh sendiri via /uranium/v2/user/access-token
 """
@@ -21,6 +23,9 @@ except (AttributeError, ValueError):  # pragma: no cover
 
 CHECK = "https://connect-gateway.pln.co.id/platinum/v1/meter/check"
 USAGE = "https://connect-gateway.pln.co.id/platinum/v2/meter/usage/"
+NOREG = "https://connect-gateway.pln.co.id/platinum/v1/meter/lacak-permohonan"
+BIND = "https://connect-gateway.pln.co.id/platinum/v1/meter/track-bind"
+DETAIL = "https://connect-gateway.pln.co.id/platinum/v1/meter/installations?id="
 REFRESH = "https://connect-gateway.pln.co.id/uranium/v2/user/access-token"
 TOKEN_FILE = pathlib.Path.home() / "pln-re" / "tok.json"
 
@@ -95,6 +100,48 @@ def usage(uid) -> dict:
     """Riwayat 6 bulan. Path pakai id INTERNAL (data.id dari check), bukan IDPEL."""
     return get(f"{USAGE}{uid}")
 
+def noreg(no: str) -> list:
+    """Lacak permohonan pasang baru pakai no registrasi 13 digit."""
+    body = json.dumps({"agendaNo": no, "code": "NOREGISTER"}).encode()
+    for attempt in range(4):
+        try:
+            d = call(NOREG, {
+                "content-type": "application/json",
+                "Authorization": "Bearer " + access(attempt > 0),
+                "x-plnmobile-version": "8.1.1",
+            }, body)
+        except urllib.error.HTTPError as err:
+            d = json.loads(err.read().decode(errors="replace"))
+        if d.get("code") == 200:
+            return d["data"]
+        if d.get("code") == 401 and attempt < 3:
+            continue
+        raise RuntimeError(d.get("message"))
+    raise RuntimeError("gagal berulang")
+
+
+def post_json(url: str, payload: dict) -> dict:
+    for attempt in range(4):
+        try:
+            return call(url, {
+                "content-type": "application/json",
+                "Authorization": "Bearer " + access(attempt > 0),
+                "x-plnmobile-version": "8.1.1",
+            }, json.dumps(payload).encode())
+        except urllib.error.HTTPError as err:
+            body = json.loads(err.read().decode(errors="replace"))
+        if body.get("code") == 401 and attempt < 3:
+            continue
+        raise RuntimeError(body.get("message"))
+    raise RuntimeError("gagal berulang")
+
+def bind(agenda: str) -> int:
+    """Simpan/bind permohonan ke akun (sama dengan tombol Simpan di aplikasi)."""
+    return post_json(BIND, {"agendaNo": agenda})["installationId"]
+
+def detail(iid: int) -> dict:
+    """Status + riwayat + biaya permohonan; butuh installationId hasil bind."""
+    return get(f"{DETAIL}{iid}")
 
 def main() -> int:
     if len(sys.argv) < 2:
@@ -102,10 +149,39 @@ def main() -> int:
         return 1
     gap = float(sys.argv[1][6:]) if sys.argv[1].startswith("--gap=") else 2.0
     want_usage = "--usage" in sys.argv
+    want_noreg = "--noreg" in sys.argv
+    want_status = "--status" in sys.argv
     idpels = [a for a in sys.argv[1:] if not a.startswith("--")]
     for i, idpel in enumerate(idpels):
         if i:
             time.sleep(gap)
+        if want_status:
+            try:
+                agenda = noreg(idpel)[0]["noagenda"]
+                d = detail(bind(agenda))
+            except Exception as exc:  # noqa: BLE001 - laporan per nomor
+                print(f"{idpel}: GAGAL {exc}")
+                continue
+            hist = d.get("history") or []
+            print(f"{idpel}  {d.get('installationStatus')}/{d.get('statusCode')}  "
+                  f"daya={d.get('power')}VA tarif={d.get('newTariff')}  "
+                  f"rp={d.get('totalPrice')}  meter={d.get('meterAccount')}  "
+                  f"tx={d.get('transactionId')}")
+            for p in d.get("priceDetail") or []:
+                print(f"    biaya  {p.get('item')}: {p.get('total')}")
+            for h in hist:
+                print(f"    {str(h.get('timestamp'))[:16]}  {h.get('item')}")
+            continue
+        if want_noreg:
+            try:
+                rows = noreg(idpel)
+            except Exception as exc:  # noqa: BLE001 - laporan per nomor
+                print(f"{idpel}: GAGAL {exc}")
+                continue
+            for x in rows:
+                print(f"{idpel}  {x['jenis_transaksi']}  {x['tglpermohonan']}  "
+                      f"{x['nama']}  agenda={x['noagenda']}")
+            continue
         try:
             d = check(idpel)
         except Exception as exc:  # noqa: BLE001 - laporan per IDPEL
