@@ -122,7 +122,7 @@ curl -s -X POST -H "content-type: application/json" \
 Sukses (potongan):
 ```json
 {"data":{
-  "accessToken":"eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "accessToken":"<jwt>",
   "accessTokenType":"Bearer",
   "accessTokenExpiresSec":3600,
   "refreshToken":"<refreshToken>",
@@ -166,7 +166,7 @@ curl -s -X POST \
 
 Sukses:
 ```json
-{"data":{"accessToken":"eyJ...","accessTokenType":"Bearer","accessTokenExpiresSec":3600},
+{"data":{"accessToken":"<jwt>","accessTokenType":"Bearer","accessTokenExpiresSec":3600},
  "message":"OK","code":200,"success":true}
 ```
 
